@@ -146,3 +146,249 @@ delete_sleep_log <- function(token, log_id)
     delete(url=url, token)
   }
 }
+
+#' Analyze sleep patterns
+#'
+#' Retrieves and analyzes sleep patterns
+#'
+#' @param start_date An Retrieve fitbit data from (e.g. "2017-01-01")
+#' @param end_date	Retrieve fitbit data to (e.g. "2018-06-14")
+#' @param planned_start	At what time do you plan to sleep usually (e.g. 22)?
+#' @param end_date	When do you (plan to) get up (e.g. 8)?
+#' @param limit	Can be NULL, weekdays (e.g. 'Monday'), or Months (e.g. 'July'). With 'limit' you can limit your results but it can also be the comparison for contrast
+#' @param contrast	Can be NULL, weekdays (e.g. 'Monday'), or Months (e.g. 'July').Can be used to compare sleep durations with values specified in 'limit'
+#' @param smooth_span	Plot smoothing parameter
+#' @param bar_spacing  Plot style paramter
+#' @export
+sleep_analyzer <- function(start_date="2017-01-01", 
+                            end_date="2018-06-14",  
+                            planned_start = 22,     
+                            planned_end = 8,        
+                            limit = NULL,
+                            contrast = NULL, 
+                            smooth_span = 0.25, 
+                            bar_spacing = 0.1   
+                            )
+{
+
+  # cat("\n Inspired by mmparker") 
+  # Thanks to: https://gist.github.com/mmparker/54f1fd05e62671f80dfb4b855231e6ee
+  
+  # required: 
+  require(fitbitr)
+  require(httr)
+  require(lubridate)
+  require(ggplot2)
+  options(stringsAsFactors = FALSE)
+  
+    # retrieve start time
+    sleep.start = get_sleep_time_series(token, c("startTime"), base_date=start_date, end_date=end_date)
+    
+    # retrieve duration in minutes
+    sleep.duration = get_sleep_time_series(token, c("minutesAsleep"), base_date=start_date, end_date=end_date)
+    
+    # remove missings (assuming you sleep every night...)
+    valid_obs = sleep.start$value != ""
+    sleep.start = sleep.start[valid_obs,]
+    sleep.duration = sleep.duration[valid_obs,]
+    
+    # Convert start time into POSIXlt
+    times = as.POSIXlt(paste(sleep.start$dateTime," ",sleep.start$value,":01 MET",sep=""))
+    # Convert duration into numeric
+    sleep.duration$value = as.numeric(sleep.duration$value)
+    
+    # Create data frame
+    sleepytimes <- data.frame(start_sleep = times,
+                              sleep_minutes = sleep.duration$value,
+                              sleep_hours =  sleep.duration$value/60,
+                              end_sleep = times + duration(minutes = sleep.duration$value))
+    
+    # LIMITS/CONTRASTS:
+      # Limits and contrasts can be days (e.g. 'Monday') or months (e.g. 'July')
+      # This is useful if you want to look at your sleep at specific days (limits)
+      # and/or contrast your sleep patterns (e.g.  Mon-Fri versus Sat-Sun)
+    if(!is.null(limit)){
+      
+      if(sum(c("Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Monday") %in% limit)>0){
+        indexing = format(sleepytimes$start_sleep,"%A")
+        index = indexing %in% limit
+      }
+      if(sum(c("June","July","August","September","October",
+               "November","December","January","February",
+               "March","April","May") %in% limit)>0){
+        indexing = format(sleepytimes$start_sleep,"%B")
+        index = indexing %in% limit
+      }
+        
+      sleepytimes.2 = sleepytimes[index,]
+      sleepytimes.2$type = paste(limit,collapse = "+")
+    
+    if(!is.null(contrast)){
+      
+      if(sum(c("Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","Monday") %in% contrast)>0){
+        indexing = format(sleepytimes$start_sleep,"%A")
+        index.contrast = indexing %in% contrast
+      }
+      if(sum(c("June","July","August","September","October",
+               "November","December","January","February",
+               "March","April","May") %in% contrast)>0){
+        indexing = format(sleepytimes$start_sleep,"%B")
+        index.contrast = indexing %in% contrast
+      }
+      
+      sleepytimes.3 = sleepytimes[index.contrast,]
+      sleepytimes.3$type = paste(contrast,collapse = "+")
+      
+      sleepytimes.2 = rbind(sleepytimes.2,sleepytimes.3)
+    }
+    
+    sleepytimes = sleepytimes.2
+    
+    } else {sleepytimes$type = " "}
+    
+    # from mmparker:
+          # First, I'm going to try to associate every sleep period with a particular date,
+          # even if sleep didn't start until after midnight. Rule of thumb: if sleep
+          # starts before 12pm on Tuesday, it's counted for Monday night
+        sleepytimes$night_of <- with(sleepytimes,
+                                     as.Date(
+                                       # Sleep started before 12pm? If yes, use previous date
+                                       ifelse(hour(start_sleep) > 12,
+                                              yes = date(start_sleep),
+                                              no = date(start_sleep) - 1),
+                                       
+                                       origin = "1970-01-01")
+                                     
+        )
+        
+        
+        # Now I'll use the difftime() function to calculate hours until/hours since
+        # midnight for all of the sleep start times - these will usually be positive:
+        sleepytimes$start_sleep_diff <- with(sleepytimes,
+                                             as.numeric(
+                                               difftime(time1 =as.POSIXct(paste((night_of + 1), "00:00:00")),
+                                                        time2 = start_sleep,
+                                                        units = "hours")
+                                             )
+        )
+        
+        # And again for all of the wake times - these will usually be negative:
+        sleepytimes$end_sleep_diff <- with(sleepytimes,
+                                           as.numeric(
+                                             difftime(time1 = as.POSIXct(paste((night_of + 1), "00:00:00")),
+                                                      time2 = end_sleep,
+                                                      units = "hours")
+                                           )
+        )
+        
+        # To get actual time labels, we need a function that will take our y values
+        # and return actual times. 
+        label_hours <- function(x) {
+          
+          require(lubridate)
+          
+          # Start with midnight, then subtract the "time to midnight" variables - 
+          # just reversing what we did before, basically, then formatting
+          # to show just the hours (%I) and AM/PM indicator (%p)
+          format(as.POSIXct(paste(Sys.Date(), "00:00:00")) - hours(x), "%I:00 %p")
+          
+        }
+        
+    # planned start and stop of sleep
+        planned_start_trans = 24 - planned_start
+        planned_end_trans =  0 - planned_end
+    
+    sleep_plot = 
+      ggplot(sleepytimes) +
+        geom_hline(yintercept = c(planned_start_trans,planned_end_trans),size=2) +
+        geom_point(aes(x = night_of,y= start_sleep_diff),col="orange") +
+        geom_point(aes(x = night_of,y= end_sleep_diff),col="red") +
+        geom_rect(aes(xmin = night_of + bar_spacing, 
+                      xmax = night_of + (1 - bar_spacing),
+                      ymin = start_sleep_diff,
+                      ymax = end_sleep_diff),
+                  fill = "#2b8cbe") +
+        geom_smooth(aes(x = night_of, y = start_sleep_diff), 
+                    method = loess, method.args = list(span = smooth_span),
+                    se = FALSE, color = "#045a8d") +
+        
+        geom_smooth(aes(x = night_of, y = end_sleep_diff), 
+                    method = loess, method.args = list(span = smooth_span),
+                    se = FALSE, color = "#045a8d") +
+        labs(x = "Date",
+             y = "Time",
+             main = "Sleep and Wake Times") +
+        scale_y_reverse(labels = label_hours, breaks = seq(-24,24,by=3),
+                        minor_breaks = seq(-24,24,by=1)) +
+        theme_bw() +
+        coord_flip() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+      
+    
+    
+    sleep_contrasts_plot = NULL
+    if ( !is.null(contrast)){
+      sleep_contrasts_plot = 
+        sleep_plot + 
+        facet_wrap(~type,
+                   nrow = 2) 
+      }
+    
+    lm_day = lm_month = lm_contrast = NULL
+    
+    # regression analysis: test for differences in sleep duration per day and per month
+    tryCatch({
+    sleepytimes$day = format(sleepytimes$start_sleep,"%A")
+    lm_day = lm(sleep_minutes/60 ~ +1+day , data = sleepytimes)
+    },error = function(e){cat("\n Error in regression...")})
+    
+    tryCatch({
+    sleepytimes$month = format(sleepytimes$start_sleep,"%B")
+    lm_month = lm(sleep_minutes/60 ~ +1+month , data = sleepytimes)
+    },error = function(e){cat("\n Error in regression...")})
+    
+    if(!is.null(contrast)){
+      lm_contrast = lm(sleep_minutes/60 ~ - 1 + type , data = sleepytimes)
+    }
+    
+    # boxplot hours ~ weekday
+    box = ggplot(sleepytimes) +
+      geom_boxplot(aes(x=day, y=sleep_minutes/60)) +
+      ylab("Hours of sleep")
+      
+    # mean sleep duration over time
+    sleep_over_time =
+    ggplot(sleepytimes)  +
+       geom_line(aes(x=start_sleep,y=sleep_minutes/60)) +
+      geom_smooth(aes(x = start_sleep, y = sleep_minutes/60), 
+                  method = loess, method.args = list(span = smooth_span),
+                  se = T, color = "#045a8d") +
+      ylab("Hours of sleep") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+    
+    
+    # histogram sleep duration
+    histo = ggplot(sleepytimes)  +
+      geom_histogram(aes(sleep_minutes/60),bins=50,fill="lightblue",col="blue") +
+      xlab("Hours of sleep") +
+      ylab("Frequency") +
+      geom_vline(xintercept = mean(sleepytimes$sleep_minutes/60)) +
+      scale_x_continuous(breaks=1:12) +
+      theme_minimal() 
+      
+    
+    
+    output = list(sleep_plot = sleep_plot,
+                  sleep_contrasts_plot = sleep_contrasts_plot,
+                  sleep_over_time = sleep_over_time,
+                  histogram = histo,
+                  boxplot = box,
+                  lm_day = lm_day,
+                  lm_month = lm_month,
+                  lm_contrast = lm_contrast,
+                  raw_data = sleepytimes)
+    
+    return(output)
+    
+}
+
