@@ -254,8 +254,8 @@ sleep_analyzer <- function(start_date="2017-01-01",
                                      as.Date(
                                        # Sleep started before 12pm? If yes, use previous date
                                        ifelse(hour(start_sleep) > 12,
-                                              yes = date(start_sleep),
-                                              no = date(start_sleep) - 1),
+                                              yes = lubridate::date(start_sleep),
+                                              no = lubridate::date(start_sleep) - 1),
                                        
                                        origin = "1970-01-01")
                                      
@@ -290,7 +290,7 @@ sleep_analyzer <- function(start_date="2017-01-01",
           # Start with midnight, then subtract the "time to midnight" variables - 
           # just reversing what we did before, basically, then formatting
           # to show just the hours (%I) and AM/PM indicator (%p)
-          format(as.POSIXct(paste(Sys.Date(), "00:00:00")) - hours(x), "%I:00 %p")
+          format(as.POSIXct(paste(Sys.Date(), "00:00:00")) - lubridate::hours(x), "%I:00 %p")
           
         }
         
