@@ -348,7 +348,7 @@ sleep_analyzer <- function(start_date="2017-01-01",
     },error = function(e){cat("\n Error in regression...")})
     
     if(!is.null(contrast)){
-      lm_contrast = lm(sleep_minutes/60 ~ - 1 + type , data = sleepytimes)
+      lm_contrast = lm(sleep_minutes/60 ~  type , data = sleepytimes)
     }
     
     # boxplot hours ~ weekday
