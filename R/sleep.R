@@ -235,18 +235,20 @@ sleep_analyzer = function (start_date = "2017-01-01", end_date = "2018-06-14",
   }
   planned_start_trans = 24 - planned_start
   planned_end_trans = 0 - planned_end
+  
+  # sleep start-end plot
   sleep_plot = 
     ggplot(sleepytimes) + 
-    geom_hline(yintercept = c(planned_start_trans, planned_end_trans), size = 2) + 
-    geom_point(aes(x = night_of, y = start_sleep_diff), col = "orange") + 
-    geom_point(aes(x = night_of, y = end_sleep_diff),col = "red") + 
-    geom_rect(aes(xmin = night_of + bar_spacing, xmax = night_of + (1 - bar_spacing), ymin = start_sleep_diff, ymax = end_sleep_diff), fill = "#2b8cbe") + 
+    geom_hline(yintercept = c(planned_start_trans, planned_end_trans), size = 1) + 
+    geom_point(aes(x = night_of, y = start_sleep_diff), col = "orange",alpha=.7) + 
+    geom_point(aes(x = night_of, y = end_sleep_diff),col = "red",alpha=.7) + 
+    geom_rect(aes(xmin = night_of + bar_spacing, xmax = night_of + (1 - bar_spacing), ymin = start_sleep_diff, ymax = end_sleep_diff), fill = "#2b8cbe",alpha=.5) + 
     geom_smooth(aes(x = night_of, y = start_sleep_diff), method = loess, method.args = list(span = smooth_span), se = FALSE, color = "#045a8d") +
     geom_smooth(aes(x = night_of, y = end_sleep_diff), method = loess, method.args = list(span = smooth_span), se = FALSE, color = "#045a8d") + 
     labs(x = "Date", y = "Time", main = "Sleep and Wake Times") + 
     scale_y_reverse(labels = label_hours, breaks = seq(-24, 24, by = 1), minor_breaks = seq(-24, 24, by = 1)) + 
-    theme_bw() + 
     coord_flip() + 
+    theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     NULL
   
@@ -271,20 +273,44 @@ sleep_analyzer = function (start_date = "2017-01-01", end_date = "2018-06-14",
   if (!is.null(contrast)) {
     lm_contrast = lm(sleep_minutes/60 ~ type, data = sleepytimes)
   }
-  box = ggplot(sleepytimes) + geom_boxplot(aes(x = day, y = sleep_minutes/60)) + 
-    ylab("Hours of sleep")
-  sleep_over_time = ggplot(sleepytimes) + geom_line(aes(x = start_sleep, 
-                                                        y = sleep_minutes/60)) + 
-    geom_smooth(aes(x = start_sleep, 
-                    y = sleep_minutes/60), method = loess, method.args = list(span = smooth_span), 
-                    se = T, color = "#045a8d") + ylab("Hours of sleep") + 
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  histo = ggplot(sleepytimes) + geom_histogram(aes(sleep_minutes/60), 
-                                               bins = 50, fill = "lightblue", col = "blue") + xlab("Hours of sleep") + 
-    ylab("Frequency") + geom_vline(xintercept = mean(sleepytimes$sleep_minutes/60)) + 
-    scale_x_continuous(breaks = 1:12) + theme_minimal()
+  # boxplot
+  sleep_by_day = sleepytimes
+  sleep_by_day$label = sleep_by_day$day 
+  sleep_by_day$day = recode(sleep_by_day$day,"Tuesday"=2, "Wednesday"=3, "Thursday"=4, "Friday"=5, 
+                              "Saturday"=6, "Sunday"=7, "Monday"=1)
   
+  box = ggplot(sleep_by_day) + 
+    geom_boxplot(aes(x = day,group=label, y = sleep_minutes/60)) + 
+    geom_boxplot(aes(x = day,fill=label, y = sleep_minutes/60),alpha=0.3) + 
+    scale_x_continuous(breaks=1:7,labels =c("Monday","Tuesday", "Wednesday", "Thursday", "Friday", 
+                                            "Saturday", "Sunday"),
+                     name="Day of the week") +
+    ylab("Hours of sleep") +
+    theme_minimal() +
+    theme(legend.position = "none") +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1)) 
   
+  # sleep over time time series
+  sleep_over_time = ggplot(sleepytimes) + 
+    geom_point(aes(x = start_sleep, y = sleep_minutes/60),size=.5,alpha=0.7) + 
+    geom_line(aes(x = start_sleep, y = sleep_minutes/60),alpha=0.7,col="darkgray") + 
+    geom_smooth(aes(x = start_sleep, y = sleep_minutes/60), method = loess, method.args = list(span = smooth_span), se = T, color = "#045a8d") + ylab("Hours of sleep") + 
+    theme_minimal() + 
+    scale_x_datetime(date_breaks = "3 month",date_labels = "%m/%Y",date_minor_breaks = "1 month") +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1))  +
+    NULL
+  
+  # histogramm
+  histo = ggplot(sleepytimes) + 
+    geom_histogram(aes(sleep_minutes/60), bins = 50, fill = "lightblue", col = "blue",alpha=0.8) + 
+    xlab("Hours of sleep") + 
+    ylab("Frequency") + 
+      geom_vline(xintercept = median(sleepytimes$sleep_minutes/60),size=1.2) + 
+    scale_x_continuous(breaks = 1:12) + 
+    theme_minimal() +
+    NULL
+  
+  # sleep by month time series
   sleep_by_month = sleepytimes
   sleep_by_month = aggregate(sleep_minutes ~ month + year(start_sleep),sleep_by_month,mean)
   names(sleep_by_month) = c("month","year","value")
@@ -295,16 +321,18 @@ sleep_analyzer = function (start_date = "2017-01-01", end_date = "2018-06-14",
   
   
   sleep_by_month_plot = ggplot(sleep_by_month) + 
-    geom_line(aes(x=month,y=value/60,col=as.factor(year)),size=2,alpha=.7) + 
+    geom_line(aes(x=month,y=value/60,col=as.factor(year)),size=1,alpha=.7) + 
+    geom_point(aes(x=month,y=value/60,col=as.factor(year)),size=1,alpha=1) + 
     geom_smooth(aes(x = month, y = value/60), method = loess, se = T, color = "#045a8d") + 
-    ylab("Hours of sleep by month") + 
+    ylab("Average hours of sleep") + 
+    theme_minimal()+
     scale_x_continuous(breaks=sleep_by_month$month,labels=sleep_by_month$label) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    guides(title="Year") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),legend.title = element_blank()) +
+    NULL
   
   
-  
-  
-  # gathe results 
+  # gather results 
   output = list(sleep_plot = sleep_plot, sleep_contrasts_plot = sleep_contrasts_plot, 
                 sleep_over_time = sleep_over_time, histogram = histo, 
                 boxplot = box, lm_day = lm_day, lm_month = lm_month, 
@@ -316,4 +344,5 @@ sleep_analyzer = function (start_date = "2017-01-01", end_date = "2018-06-14",
   
   return(output)
 }
+
 
